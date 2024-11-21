@@ -89,6 +89,7 @@ func main() {
         node.ClientTimeout(time.Second * 10),
         node.HeartBeatTimeout(time.Second * 3),
         node.CheckElectionTimeout(time.Second * 10),
+        node.WithLogger(slog.Default()),
     }
 
     port, _ := strconv.ParseInt(p.Port, 10, 64)
@@ -116,7 +117,7 @@ func main() {
     }
 
     ctx, cancel := context.WithCancel(context.Background())
-    go n.Run(ctx, slog.Default())
+    go n.Run(ctx)
 
     go func() {
         for {

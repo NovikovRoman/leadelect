@@ -2,7 +2,7 @@ package node
 
 import (
 	"context"
-	"log/slog"
+	"fmt"
 	"math/rand/v2"
 	"net"
 	"sync"
@@ -11,16 +11,22 @@ import (
 	pb "github.com/NovikovRoman/leadelect/grpc"
 )
 
-func (n *Node) Run(ctx context.Context, logger *slog.Logger) {
-	go n.serverRun(ctx, logger)
+type initNodeResult struct {
+	nodeID string
+	resp   *pb.NodeStatusResponse
+	err    error
+}
+
+func (n *Node) Run(ctx context.Context) {
+	go n.serverRun(ctx)
 
 	// And who is the leader here?
-	n.initialization(ctx, logger)
+	n.initNodes(ctx)
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 
 	nextCheck := time.Now()
-	nextHeartBeat := time.Now()
+	nextHeartbeat := time.Now()
 	for t := range ticker.C {
 		select {
 		case <-ctx.Done():
@@ -28,14 +34,14 @@ func (n *Node) Run(ctx context.Context, logger *slog.Logger) {
 		default:
 		}
 
-		if n.isLeader() && t.After(nextHeartBeat) {
-			n.setHeartBeat()
-			nextHeartBeat = time.Now().Add(n.heartBeatTimeout)
-			if err := n.heartBeat(ctx); err != nil {
-				logger.Error("Run heartBeat", "err", err.Error())
+		if n.isLeader() && t.After(nextHeartbeat) {
+			n.setHeartbeat()
+			nextHeartbeat = time.Now().Add(n.heartbeatTimeout)
+			if err := n.sendHeartbeat(ctx); err != nil {
+				n.logger.Err(ctx, fmt.Errorf("Run heartbeat: %w", err), nil)
 			}
 
-		} else if n.getLeader() != nil && n.heartBeatExpired() {
+		} else if n.getLeader() != nil && n.heartbeatExpired() {
 			n.newLeader("")
 		}
 
@@ -43,74 +49,65 @@ func (n *Node) Run(ctx context.Context, logger *slog.Logger) {
 			continue
 		}
 
-		logger.Info("Run", "status", n.getStatus())
-
 		if n.getLeader() == nil {
-			n.election(ctx, logger)
+			n.election(ctx)
+			n.logger.Info(ctx, "Run", map[string]any{
+				"status": n.getStatus(),
+			})
 			time.Sleep(time.Second)
 
 		} else {
-			nextCheck = time.Now().Add(n.checkElectionTimeout)
+			nextCheck = time.Now().Add(n.electionCheckTimeout)
 		}
 	}
 }
 
-func (n *Node) serverRun(ctx context.Context, logger *slog.Logger) {
+func (n *Node) serverRun(ctx context.Context) {
 	lis, err := net.Listen("tcp", n.AddrPort())
 	if err != nil {
-		logger.Error("serverRun net.Listen", "id", n.ID(), "addr", n.AddrPort(), "err", err.Error())
+		n.logger.Err(ctx, fmt.Errorf("serverRun net.Listen: %w", err), map[string]any{
+			"id":   n.ID(),
+			"addr": n.AddrPort(),
+		})
 		return
 	}
 
-	pb.RegisterNodeServer(n.grpcServer, newServer(n, logger))
+	pb.RegisterNodeServer(n.grpcServer, newServer(n))
 
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
 		<-ctx.Done()
 		n.grpcServer.GracefulStop()
-		logger.Info("serverRun Graceful stop", "id", n.ID(), "addr", n.AddrPort())
+		n.logger.Info(ctx, "serverRun Graceful stop", map[string]any{
+			"id":   n.ID(),
+			"addr": n.AddrPort(),
+		})
 		wg.Done()
 	}()
 
-	logger.Info("serverRun", "id", n.ID(), "addr", n.AddrPort())
+	n.logger.Info(ctx, "serverRun", map[string]any{
+		"id":   n.ID(),
+		"addr": n.AddrPort(),
+	})
 	if err := n.grpcServer.Serve(lis); err != nil {
-		logger.Error("serverRun Serve", "id", n.ID(), "addr", n.AddrPort(), "err", err.Error())
+		n.logger.Err(ctx, fmt.Errorf("serverRun grpcServer.Serve: %w", err), map[string]any{
+			"id":   n.ID(),
+			"addr": n.AddrPort(),
+		})
 	}
 	wg.Wait()
 }
 
-func (n *Node) initialization(ctx context.Context, logger *slog.Logger) {
-	type data struct {
-		nodeID string
-		resp   *pb.NodeStatusResponse
-	}
-
-	ch := make(chan *data)
+func (n *Node) initNodes(ctx context.Context) {
+	ch := make(chan initNodeResult)
 	defer close(ch)
 
 	go func() {
 		wg := &sync.WaitGroup{}
 		for _, node := range n.Nodes() {
-			logger.Info("initialization", "nodeID", node.id)
-
 			wg.Add(1)
-			go func(wg *sync.WaitGroup, ch chan *data) {
-				defer wg.Done()
-
-				resp, err := n.grpcClient.status(ctx, node.AddrPort())
-				if err != nil {
-					logger.Info("initialization status", "nodeID", node.id, "err", err.Error())
-					ch <- nil
-					return
-				}
-
-				logger.Info("initialization", "nodeID", node.id, "status", resp.Status, "round", resp.Round)
-				ch <- &data{
-					nodeID: node.ID(),
-					resp:   resp,
-				}
-			}(wg, ch)
+			go n.initNode(ctx, wg, ch, node)
 		}
 		wg.Wait()
 	}()
@@ -122,19 +119,29 @@ func (n *Node) initialization(ctx context.Context, logger *slog.Logger) {
 		case <-ctx.Done():
 			return
 
-		case d := <-ch:
-			if d == nil {
+		case r := <-ch:
+			if r.err != nil {
+				n.logger.Info(ctx, "initNode grpcClient.status", map[string]any{
+					"nodeID": r.nodeID,
+					"err":    r.err,
+				})
 				continue
 			}
 
-			if d.resp.Status == pb.NodeStatus_Leader {
-				hasLeader = true
-				n.newLeader(d.nodeID)
-				n.setHeartBeat()
-				n.setRound(d.resp.Round)
+			n.logger.Info(ctx, "initNode response.status", map[string]any{
+				"nodeID": r.nodeID,
+				"status": r.resp.Status,
+				"round":  r.resp.Round,
+			})
 
-			} else if d.resp.Round > maxRound {
-				maxRound = d.resp.Round
+			if r.resp.Status == pb.NodeStatus_Leader {
+				hasLeader = true
+				n.newLeader(r.nodeID)
+				n.setHeartbeat()
+				n.setRound(r.resp.Round)
+
+			} else if r.resp.Round > maxRound {
+				maxRound = r.resp.Round
 			}
 		}
 	}
@@ -144,7 +151,28 @@ func (n *Node) initialization(ctx context.Context, logger *slog.Logger) {
 	}
 }
 
-func (n *Node) election(ctx context.Context, logger *slog.Logger) {
+func (n *Node) initNode(ctx context.Context, wg *sync.WaitGroup, ch chan initNodeResult, node *Node) {
+	defer wg.Done()
+
+	res := initNodeResult{
+		nodeID: node.ID(),
+		resp:   nil,
+	}
+
+	resp, err := n.grpcClient.status(ctx, node.AddrPort())
+	if err != nil {
+		res.err = err
+		ch <- res
+		return
+	}
+
+	ch <- initNodeResult{
+		nodeID: node.ID(),
+		resp:   resp,
+	}
+}
+
+func (n *Node) election(ctx context.Context) {
 	n.resetVotes()
 	if n.isVoted() {
 		n.setStatus(pb.NodeStatus_Follower)
@@ -175,11 +203,16 @@ func (n *Node) election(ctx context.Context, logger *slog.Logger) {
 
 			resp, err := n.grpcClient.vote(ctx, node.AddrPort())
 			if err != nil {
-				logger.Error("election vote", "nodeID", node.id, "err", err.Error())
+				n.logger.Err(ctx, fmt.Errorf("election vote: %w", err), map[string]any{
+					"nodeID": node.id,
+				})
 				return
 			}
-
-			logger.Info("election", "nodeID", node.id, "vote", resp.Vote, "round", resp.Round)
+			n.logger.Info(ctx, "election", map[string]any{
+				"nodeID": node.id,
+				"vote":   resp.Vote,
+				"round":  resp.Round,
+			})
 			if maxRound < resp.Round {
 				maxRound = resp.Round
 			}
@@ -190,11 +223,14 @@ func (n *Node) election(ctx context.Context, logger *slog.Logger) {
 	}
 	wg.Wait()
 
-	logger.Info("election", "votes", n.numVotes())
-	if n.numVotes() > n.NumNodes()/2 {
+	n.logger.Info(ctx, "election", map[string]any{
+		"votes": n.numVotes(),
+	})
+
+	if n.numVotes() > 0 && n.numVotes() > n.NumNodes()/2 {
 		n.newLeader(n.id)
-		if err := n.heartBeat(ctx); err != nil {
-			logger.Error("election heartBeat", "err", err.Error())
+		if err := n.sendHeartbeat(ctx); err != nil {
+			n.logger.Err(ctx, fmt.Errorf("election sendHeartbeat: %w", err), nil)
 		}
 		return
 

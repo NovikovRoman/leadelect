@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -20,20 +21,25 @@ type Node struct {
 	port   int
 	status pb.NodeStatus
 
-	round int64 // Раунд голосования
-	votes int   // Голоса от нод
-	voted bool  // Проголосовал
+	round int64 // Voting round
+	votes int   // Votes from the nodes
+	voted bool
 
-	nodes map[string]*Node // другие ноды
+	nodes map[string]*Node // Other nods
 
-	heartBeatTime time.Time
+	// For the leader it is the time of the last heartbeat.
+	// For followers, this is the time of the last reply on heartbeat.
+	heartbeatTime           time.Time
+	heartbeatTimeout        time.Duration // Maximum wait for a response to heartbeat.
+	heartbeatExpiredTimeout time.Duration // Maximum waiting time heartbeat.
 
-	heartBeatTimeout     time.Duration
-	checkElectionTimeout time.Duration
+	electionCheckTimeout time.Duration
 
 	grpcClient    *client
 	clientTimeout time.Duration
 	grpcServer    *grpc.Server
+
+	logger Logger
 }
 
 type NodeOpt func(n *Node)
@@ -44,28 +50,43 @@ func ClientTimeout(timeout time.Duration) NodeOpt {
 	}
 }
 
-func HeartBeatTimeout(timeout time.Duration) NodeOpt {
+func HeartbeatExpiredTimeout(timeout time.Duration) NodeOpt {
 	return func(n *Node) {
-		n.heartBeatTimeout = timeout
+		n.heartbeatExpiredTimeout = timeout
+	}
+}
+
+func HeartbeatTimeout(timeout time.Duration) NodeOpt {
+	return func(n *Node) {
+		n.heartbeatTimeout = timeout
 	}
 }
 
 func CheckElectionTimeout(timeout time.Duration) NodeOpt {
 	return func(n *Node) {
-		n.checkElectionTimeout = timeout
+		n.electionCheckTimeout = timeout
+	}
+}
+
+func WithLogger(logger Logger) NodeOpt {
+	return func(n *Node) {
+		n.logger = logger
 	}
 }
 
 func New(id, addr string, port int, opts ...NodeOpt) (n *Node) {
 	n = &Node{
-		id:                   id,
-		addr:                 addr,
-		port:                 port,
-		nodes:                make(map[string]*Node),
-		status:               pb.NodeStatus_Follower,
-		clientTimeout:        time.Second * 10,
-		heartBeatTimeout:     time.Second * 3,
-		checkElectionTimeout: time.Second * 10,
+		id:                      id,
+		addr:                    addr,
+		port:                    port,
+		nodes:                   make(map[string]*Node),
+		status:                  pb.NodeStatus_Follower,
+		heartbeatExpiredTimeout: time.Second * 5,
+		clientTimeout:           time.Second * 10,
+		heartbeatTimeout:        time.Second * 3,
+		electionCheckTimeout:    time.Second * 10,
+		grpcServer:              grpc.NewServer(),
+		logger:                  NewLogger(slog.LevelDebug),
 	}
 
 	for _, opt := range opts {
@@ -114,9 +135,11 @@ func (n *Node) AddrPort() string {
 	return fmt.Sprintf("%s:%d", n.addr, n.port)
 }
 
-func (n *Node) AddNode(node *Node) {
+func (n *Node) AddNode(node ...*Node) {
 	n.Lock()
-	n.nodes[node.id] = node
+	for _, nn := range node {
+		n.nodes[nn.id] = nn
+	}
 	n.Unlock()
 }
 
@@ -202,19 +225,19 @@ func (n *Node) agreeVote(round int64) bool {
 
 	n.voted = true
 	n.votes = 0
-	n.status = pb.NodeStatus_Follower // снять свою кандидатуру
+	n.status = pb.NodeStatus_Follower // withdraw
 	return true
 }
 
-func (n *Node) heartBeatExpired() bool {
+func (n *Node) heartbeatExpired() bool {
 	n.RLock()
 	defer n.RUnlock()
-	return time.Since(n.heartBeatTime) > time.Second*5
+	return time.Since(n.heartbeatTime) > n.heartbeatExpiredTimeout
 }
 
-func (n *Node) setHeartBeat() {
+func (n *Node) setHeartbeat() {
 	n.Lock()
-	n.heartBeatTime = time.Now()
+	n.heartbeatTime = time.Now()
 	n.Unlock()
 }
 
@@ -276,21 +299,48 @@ func (n *Node) getLeader() *Node {
 	return nil
 }
 
-func (n *Node) heartBeat(ctx context.Context) error {
-	n.setHeartBeat()
+func (n *Node) sendHeartbeat(ctx context.Context) error {
+	n.setHeartbeat()
 
 	var err error
+	numErrors := 0
+
+	chErr := make(chan error)
+	go func() {
+		for e := range chErr {
+			if e != nil {
+				err = errors.Join(err, e)
+				numErrors++
+			}
+		}
+	}()
+
 	wg := &sync.WaitGroup{}
 	for _, node := range n.Nodes() {
 		wg.Add(1)
-		go func(wg *sync.WaitGroup) {
-			defer wg.Done()
-			if e := n.grpcClient.heartBeat(ctx, node.AddrPort()); e != nil {
-				err = errors.Join(err, fmt.Errorf("node %s: %w", node.ID(), e))
-			}
-		}(wg)
+		go n.sendHeartbeatWorker(ctx, wg, chErr, node)
 	}
 	wg.Wait()
+	close(chErr)
 
+	if numErrors > n.NumNodes()/2 {
+		n.setStatus(pb.NodeStatus_Follower) // withdraw
+		n.logger.Warn(ctx, "heartbeat", map[string]any{
+			"numNonReplies": numErrors,
+			"numNodes":      n.NumNodes(),
+			"status":        n.getStatus(),
+		})
+	}
 	return err
+}
+
+func (n *Node) sendHeartbeatWorker(ctx context.Context, wg *sync.WaitGroup, chErr chan<- error, node *Node) {
+	defer wg.Done()
+	if err := n.grpcClient.heartbeat(ctx, node.AddrPort()); err != nil {
+		chErr <- fmt.Errorf("node %s: %w", node.ID(), err)
+		return
+	}
+
+	node.setHeartbeat()
+	chErr <- nil
 }

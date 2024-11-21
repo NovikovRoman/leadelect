@@ -7,7 +7,7 @@ package grpc;
 service Node {
   rpc Status(EmptyRequest) returns (NodeStatusResponse) {}
   rpc Vote(VoteRequest) returns (VoteResponse) {}
-  rpc HeartBeat(HeartBeatRequest) returns (EmptyResponse) {}
+  rpc Heartbeat(HeartbeatRequest) returns (EmptyResponse) {}
 }
 
 message EmptyRequest {}
@@ -38,7 +38,7 @@ message VoteResponse {
   int64 round = 2;
 }
 
-message HeartBeatRequest {
+message HeartbeatRequest {
   string nodeID = 1;
   int64 round = 2;
 }

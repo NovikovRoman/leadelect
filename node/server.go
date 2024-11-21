@@ -2,21 +2,18 @@ package node
 
 import (
 	"context"
-	"log/slog"
 
 	pb "github.com/NovikovRoman/leadelect/grpc"
 )
 
 type server struct {
 	pb.UnimplementedNodeServer
-	node   *Node
-	logger *slog.Logger
+	node *Node
 }
 
-func newServer(node *Node, logger *slog.Logger) *server {
+func newServer(node *Node) *server {
 	return &server{
-		node:   node,
-		logger: logger,
+		node: node,
 	}
 }
 
@@ -34,12 +31,14 @@ func (s *server) Vote(ctx context.Context, in *pb.VoteRequest) (*pb.VoteResponse
 	}, nil
 }
 
-func (s *server) HeartBeat(ctx context.Context, in *pb.HeartBeatRequest) (*pb.EmptyResponse, error) {
-	s.node.setHeartBeat()
+func (s *server) Heartbeat(ctx context.Context, in *pb.HeartbeatRequest) (*pb.EmptyResponse, error) {
+	s.node.setHeartbeat()
 
 	leader := s.node.getLeader()
 	if leader == nil || leader.getRound() < in.Round {
-		s.logger.Info("HeartBeat", "Leader", in.NodeID)
+		s.node.logger.Info(ctx, "Heartbeat", map[string]any{
+			"Leader": in.NodeID,
+		})
 		s.node.newLeader(in.NodeID)
 		s.node.setRound(in.Round)
 	}

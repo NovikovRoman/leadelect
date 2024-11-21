@@ -19,7 +19,7 @@ func newClient(node *Node, opts []grpc.DialOption) (c *client) {
 	}
 }
 
-func (c *client) heartBeat(ctx context.Context, target string) (err error) {
+func (c *client) heartbeat(ctx context.Context, target string) (err error) {
 	ctx, cancel := context.WithTimeout(ctx, c.node.clientTimeout)
 	defer cancel()
 
@@ -30,7 +30,7 @@ func (c *client) heartBeat(ctx context.Context, target string) (err error) {
 	defer conn.Close()
 
 	client := pb.NewNodeClient(conn)
-	_, err = client.HeartBeat(ctx, &pb.HeartBeatRequest{NodeID: c.node.id, Round: c.node.getRound()})
+	_, err = client.Heartbeat(ctx, &pb.HeartbeatRequest{NodeID: c.node.id, Round: c.node.getRound()})
 	return
 }
 

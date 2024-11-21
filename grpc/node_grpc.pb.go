@@ -21,7 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	Node_Status_FullMethodName    = "/grpc.Node/Status"
 	Node_Vote_FullMethodName      = "/grpc.Node/Vote"
-	Node_HeartBeat_FullMethodName = "/grpc.Node/HeartBeat"
+	Node_Heartbeat_FullMethodName = "/grpc.Node/Heartbeat"
 )
 
 // NodeClient is the client API for Node service.
@@ -30,7 +30,7 @@ const (
 type NodeClient interface {
 	Status(ctx context.Context, in *EmptyRequest, opts ...grpc.CallOption) (*NodeStatusResponse, error)
 	Vote(ctx context.Context, in *VoteRequest, opts ...grpc.CallOption) (*VoteResponse, error)
-	HeartBeat(ctx context.Context, in *HeartBeatRequest, opts ...grpc.CallOption) (*EmptyResponse, error)
+	Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*EmptyResponse, error)
 }
 
 type nodeClient struct {
@@ -61,10 +61,10 @@ func (c *nodeClient) Vote(ctx context.Context, in *VoteRequest, opts ...grpc.Cal
 	return out, nil
 }
 
-func (c *nodeClient) HeartBeat(ctx context.Context, in *HeartBeatRequest, opts ...grpc.CallOption) (*EmptyResponse, error) {
+func (c *nodeClient) Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*EmptyResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(EmptyResponse)
-	err := c.cc.Invoke(ctx, Node_HeartBeat_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, Node_Heartbeat_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func (c *nodeClient) HeartBeat(ctx context.Context, in *HeartBeatRequest, opts .
 type NodeServer interface {
 	Status(context.Context, *EmptyRequest) (*NodeStatusResponse, error)
 	Vote(context.Context, *VoteRequest) (*VoteResponse, error)
-	HeartBeat(context.Context, *HeartBeatRequest) (*EmptyResponse, error)
+	Heartbeat(context.Context, *HeartbeatRequest) (*EmptyResponse, error)
 	mustEmbedUnimplementedNodeServer()
 }
 
@@ -94,8 +94,8 @@ func (UnimplementedNodeServer) Status(context.Context, *EmptyRequest) (*NodeStat
 func (UnimplementedNodeServer) Vote(context.Context, *VoteRequest) (*VoteResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Vote not implemented")
 }
-func (UnimplementedNodeServer) HeartBeat(context.Context, *HeartBeatRequest) (*EmptyResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method HeartBeat not implemented")
+func (UnimplementedNodeServer) Heartbeat(context.Context, *HeartbeatRequest) (*EmptyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Heartbeat not implemented")
 }
 func (UnimplementedNodeServer) mustEmbedUnimplementedNodeServer() {}
 func (UnimplementedNodeServer) testEmbeddedByValue()              {}
@@ -154,20 +154,20 @@ func _Node_Vote_Handler(srv interface{}, ctx context.Context, dec func(interface
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Node_HeartBeat_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(HeartBeatRequest)
+func _Node_Heartbeat_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(HeartbeatRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(NodeServer).HeartBeat(ctx, in)
+		return srv.(NodeServer).Heartbeat(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: Node_HeartBeat_FullMethodName,
+		FullMethod: Node_Heartbeat_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NodeServer).HeartBeat(ctx, req.(*HeartBeatRequest))
+		return srv.(NodeServer).Heartbeat(ctx, req.(*HeartbeatRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -188,8 +188,8 @@ var Node_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Node_Vote_Handler,
 		},
 		{
-			MethodName: "HeartBeat",
-			Handler:    _Node_HeartBeat_Handler,
+			MethodName: "Heartbeat",
+			Handler:    _Node_Heartbeat_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
