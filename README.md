@@ -22,20 +22,20 @@
 
 ```yaml
 certs:
-  ca: certs/ca-cert.pem
-  server:
-    cert: certs/server-cert.pem
-    key: certs/server-key.pem
+    ca: certs/ca-cert.pem
+    server:
+        cert: certs/server-cert.pem
+        key: certs/server-key.pem
 nodes:
-  1:
-    addr: 127.0.0.1
-    port: 50001
-  2:
-    addr: 127.0.0.1
-    port: 50002
-  3:
-    addr: 127.0.0.1
-    port: 50003
+    1:
+        addr: 127.0.0.1
+        port: 50001
+    2:
+        addr: 127.0.0.1
+        port: 50002
+    3:
+        addr: 127.0.0.1
+        port: 50003
 ```
 
 ### main.go
@@ -75,25 +75,32 @@ type config struct {
 func main() {
     b, err := os.ReadFile("cfg.yaml")
     if err != nil {
-        slog.Error(err.Error())
+        slog.Error(fmt.Sprintf("failed to read configuration file: %v", err))
         os.Exit(1)
     }
 
     var cfg config
     if err = yaml.Unmarshal(b, &cfg); err != nil {
-        slog.Error(err.Error())
+        slog.Error(fmt.Sprintf("failed to parse configuration file: %v", err))
         os.Exit(1)
     }
 
-    p, ok := cfg.Nodes[os.Args[1]]
+    // Ensure node ID is provided as an argument
+    if len(os.Args) < 2 {
+        slog.Error("node ID argument missing")
+        os.Exit(1)
+    }
+
+    currentNodeID := os.Args[1]
+    cfgCurrNode, ok := cfg.Nodes[os.Args[1]]
     if !ok {
-        slog.Error("node not found")
+        slog.Error(fmt.Sprintf("node %s not found in configuration", currentNodeID))
         os.Exit(1)
     }
 
     opts := []node.NodeOpt{
         node.ClientTimeout(time.Second * 10),
-        node.HeartBeatTimeout(time.Second * 3),
+        node.HeartbeatTimeout(time.Second * 3),
         node.CheckElectionTimeout(time.Second * 10),
         node.WithLogger(nil), // default slog
     }
@@ -104,40 +111,52 @@ func main() {
     // customSlog := slog.NewTextHandler(w, nil)
     // opts = append(opts, node.WithLogger(node.NewLogger(customSlog)))
 
-    port, _ := strconv.ParseInt(p.Port, 10, 64)
-    n := node.New(os.Args[1], p.Addr, int(port), opts...)
+    port, _ := strconv.ParseInt(cfgCurrNode.Port, 10, 64)
+    currNode := node.New(currentNodeID, cfgCurrNode.Addr, int(port), opts...)
 
+    // Setup TLS if specified in configuration
     if cfg.Certs.Ca != "" {
-        if err = n.ClientTLS(cfg.Certs.Ca, p.Addr); err != nil {
-            slog.Error(err.Error())
+        if err = currNode.ClientTLS(cfg.Certs.Ca, cfgCurrNode.Addr); err != nil {
+            slog.Error(fmt.Sprintf("failed to set up client TLS %v", err))
             os.Exit(1)
         }
     }
     if cfg.Certs.Server.Cert != "" {
-        if err = n.ServerTLS(cfg.Certs.Server.Cert, cfg.Certs.Server.Key); err != nil {
-            slog.Error(err.Error())
+        if err = currNode.ServerTLS(cfg.Certs.Server.Cert, cfg.Certs.Server.Key); err != nil {
+            slog.Error(fmt.Sprintf("failed to set up server TLS %v", err))
             os.Exit(1)
         }
     }
 
     for id, v := range cfg.Nodes {
-        if id == os.Args[1] {
+        if id == currentNodeID {
             continue
         }
-        port, _ := strconv.ParseInt(v.Port, 10, 64)
-        n.AddNode(node.New(id, v.Addr, int(port)))
+        p, err := strconv.Atoi(v.Port)
+        if err != nil {
+            slog.Warn(fmt.Sprintf("invalid port %d for node %s, skipping", p, id))
+            continue
+        }
+        currNode.AddNode(node.New(id, v.Addr, p))
     }
 
     ctx, cancel := context.WithCancel(context.Background())
-    go n.Run(ctx)
+    // Start the node
+    go currNode.Run(ctx)
 
     go func() {
         for {
-            time.Sleep(time.Second * 10)
-            fmt.Println("Node status", n.Status())
-        }
+         // …
+         // your code
+         // …
+
+         // this code is an example
+         time.Sleep(time.Second * 10)
+         fmt.Println("Node status", currNode.Status())
+     }
     }()
 
+    // Handle graceful shutdown
     shutdown := make(chan bool)
     defer close(shutdown)
     interrupt := make(chan os.Signal, 1)
@@ -147,6 +166,7 @@ func main() {
         <-interrupt
         cancel()
         log.Println("Shutting down...")
+        // time to complete the process
         time.Sleep(time.Second * 3)
         shutdown <- true
     }()

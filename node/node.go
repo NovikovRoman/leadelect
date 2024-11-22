@@ -22,7 +22,7 @@ type Node struct {
 
 	round int64 // Voting round
 	votes int   // Votes from the nodes
-	voted bool
+	voted bool  // Has voted
 
 	nodes map[string]*Node // Other nods
 

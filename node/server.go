@@ -17,6 +17,7 @@ func newServer(node *Node) *server {
 	}
 }
 
+// Status returns the status and voting round number of the node.
 func (s *server) Status(ctx context.Context, in *pb.EmptyRequest) (*pb.NodeStatusResponse, error) {
 	return &pb.NodeStatusResponse{
 		Status: s.node.Status(),
@@ -24,6 +25,7 @@ func (s *server) Status(ctx context.Context, in *pb.EmptyRequest) (*pb.NodeStatu
 	}, nil
 }
 
+// Vote handles a voting request from another node.
 func (s *server) Vote(ctx context.Context, in *pb.VoteRequest) (*pb.VoteResponse, error) {
 	return &pb.VoteResponse{
 		Vote:  s.node.agreeVote(in.Round),
@@ -31,13 +33,14 @@ func (s *server) Vote(ctx context.Context, in *pb.VoteRequest) (*pb.VoteResponse
 	}, nil
 }
 
+// Heartbeat processes a heartbeat from the leader.
 func (s *server) Heartbeat(ctx context.Context, in *pb.HeartbeatRequest) (*pb.EmptyResponse, error) {
 	s.node.setHeartbeat()
 
 	leader := s.node.getLeader()
 	if leader == nil || leader.getRound() < in.Round {
 		s.node.logger.Info(ctx, "Heartbeat", []LoggerField{
-			{Key: "Leader", Value: in.NodeID},
+			{Key: "New leader", Value: in.NodeID},
 		})
 		s.node.newLeader(in.NodeID)
 		s.node.setRound(in.Round)

@@ -4,41 +4,53 @@ option go_package = "/grpc";
 
 package grpc;
 
+// Node service for leader election in a distributed system.
 service Node {
+  // Status returns the current status and voting round of the node.
   rpc Status(EmptyRequest) returns (NodeStatusResponse) {}
+  // Vote requests a vote from the node for a specific round.
   rpc Vote(VoteRequest) returns (VoteResponse) {}
+  // HeartBeat informs the node about the current leader's heartbeat.
   rpc Heartbeat(HeartbeatRequest) returns (EmptyResponse) {}
 }
 
+// EmptyRequest is a placeholder for requests without parameters.
 message EmptyRequest {}
+// EmptyResponse is a placeholder for responses without data.
 message EmptyResponse {}
 
+// StatusRequest requests the status of a specific node.
 message StatusRequest {
-  string nodeID = 1;
+  string nodeID = 1; // Unique identifier of the node.
 }
 
+// NodeStatusResponse provides the status and current round of the node.
 message NodeStatusResponse {
-  NodeStatus status = 1;
-  int64 round = 2;
+  NodeStatus status = 1; // Current status of the node (Follower, Candidate, Leader).
+  int64 round = 2; // The voting round number of the current node.
 }
 
+// NodeStatus represents the state of a node in the election.
 enum NodeStatus {
   Follower = 0;
 	Candidate = 1;
 	Leader = 2;
 }
 
+// VoteRequest sends a voting request for a specific round.
 message VoteRequest {
-  string nodeID = 1;
-  int64 round = 2;
+  string nodeID = 1; // Unique identifier of the requesting node.
+  int64 round = 2; // Round number for which the vote is requested.
 }
 
+// VoteResponse provides the response to a voting request.
 message VoteResponse {
-  bool vote = 1;
-  int64 round = 2;
+  bool vote = 1; // Indicates if the vote was granted.
+  int64 round = 2; // Node voting round number.
 }
 
+// HeartBeatRequest informs the node of the current leader's heartbeat.
 message HeartbeatRequest {
-  string nodeID = 1;
-  int64 round = 2;
+  string nodeID = 1; // Unique identifier of the leader node.
+  int64 round = 2; // The current number of the leader's voting round.
 }

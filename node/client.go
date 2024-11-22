@@ -12,13 +12,14 @@ type client struct {
 	grpcClientOpts []grpc.DialOption
 }
 
-func newClient(node *Node, opts []grpc.DialOption) (c *client) {
+func newClient(node *Node, opts []grpc.DialOption) *client {
 	return &client{
 		node:           node,
 		grpcClientOpts: opts,
 	}
 }
 
+// heartBeat sends a heartbeat message to the target node and returns an error if unsuccessful.
 func (c *client) heartbeat(ctx context.Context, target string) (err error) {
 	ctx, cancel := context.WithTimeout(ctx, c.node.clientTimeout)
 	defer cancel()
@@ -34,6 +35,7 @@ func (c *client) heartbeat(ctx context.Context, target string) (err error) {
 	return
 }
 
+// vote sends a vote request to the target node and returns the response or an error if unsuccessful.
 func (c *client) vote(ctx context.Context, target string) (*pb.VoteResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.node.clientTimeout)
 	defer cancel()
@@ -48,6 +50,7 @@ func (c *client) vote(ctx context.Context, target string) (*pb.VoteResponse, err
 	return client.Vote(ctx, &pb.VoteRequest{NodeID: c.node.id, Round: c.node.getRound()})
 }
 
+// status retrieves the status from the target node and returns the response or an error if unsuccessful.
 func (c *client) status(ctx context.Context, target string) (status *pb.NodeStatusResponse, err error) {
 	ctx, cancel := context.WithTimeout(ctx, c.node.clientTimeout)
 	defer cancel()

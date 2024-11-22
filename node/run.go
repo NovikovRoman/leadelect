@@ -28,7 +28,7 @@ func (n *Node) Run(ctx context.Context) {
 		}
 	}()
 
-	// And who is the leader here?
+	// initializing nodes
 	n.initNodes(ctx)
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
