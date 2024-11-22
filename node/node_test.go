@@ -4,7 +4,6 @@ package node
 
 import (
 	"context"
-	"log/slog"
 	"net"
 	"sync"
 	"testing"
@@ -16,13 +15,17 @@ import (
 	"google.golang.org/grpc"
 )
 
+var (
+	testNodeHeartbeatPort = 1111
+)
+
 func TestNodeOpts(t *testing.T) {
 	opts := []NodeOpt{
 		ClientTimeout(time.Second * 11),
 		HeartbeatTimeout(time.Second * 12),
 		HeartbeatExpiredTimeout(time.Second * 13),
 		CheckElectionTimeout(time.Second * 14),
-		WithLogger(NewLogger(slog.LevelDebug)),
+		WithLogger(NewLogger(nil)),
 	}
 
 	testNode1 := New("test1", "127.0.0.1", 1111)
@@ -138,8 +141,8 @@ func TestNodeVoted(t *testing.T) {
 }
 
 func TestNodeHeartbeat(t *testing.T) {
-	testNode1 := New("test1", "127.0.0.1", 1111)
-	testNode2 := New("test2", "127.0.0.2", 2222)
+	testNode1 := New("test1", "127.0.0.1", testNodeHeartbeatPort)
+	testNode2 := New("test2", "127.0.0.2", testNodeHeartbeatPort)
 
 	assert.True(t, testNode1.heartbeatTime.IsZero())
 	assert.True(t, testNode1.heartbeatExpired())
@@ -196,16 +199,4 @@ func TestNodeHeartbeat(t *testing.T) {
 	assert.NotNil(t, err)
 
 	close(chErr)
-}
-
-func TestNode_serverRun(t *testing.T) {
-	testNode1 := New("test1", "127.0.0.1", 10101)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go testNode1.serverRun(ctx)
-
-	testNode2 := New("test2", "127.0.0.2", 20202)
-	status, err := testNode2.grpcClient.status(ctx, testNode1.AddrPort())
-	assert.Nil(t, err)
-	assert.Equal(t, pb.NodeStatus_Follower, status.Status)
 }

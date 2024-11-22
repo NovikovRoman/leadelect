@@ -13,9 +13,13 @@ import (
 	"google.golang.org/grpc"
 )
 
-func Test_ServerVote(t *testing.T) {
-	testNode1 := New("test1", "127.0.0.1", 1111)
-	testNode2 := New("test2", "127.0.0.2", 2222)
+var (
+	testServerPort = 2222
+)
+
+func TestServerVote(t *testing.T) {
+	testNode1 := New("test1", "127.0.0.1", testServerPort)
+	testNode2 := New("test2", "127.0.0.2", testServerPort)
 
 	lis, err := net.Listen("tcp", testNode1.AddrPort())
 	require.Nil(t, err)
@@ -68,8 +72,8 @@ func Test_ServerVote(t *testing.T) {
 }
 
 func Test_ServerStatus(t *testing.T) {
-	testNode1 := New("test1", "127.0.0.1", 11101)
-	testNode2 := New("test2", "127.0.0.2", 22202)
+	testNode1 := New("test1", "127.0.0.1", testServerPort+1)
+	testNode2 := New("test2", "127.0.0.2", testServerPort+1)
 
 	lis, err := net.Listen("tcp", testNode1.AddrPort())
 	require.Nil(t, err)

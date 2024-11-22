@@ -27,7 +27,7 @@ func (s *server) Status(ctx context.Context, in *pb.EmptyRequest) (*pb.NodeStatu
 func (s *server) Vote(ctx context.Context, in *pb.VoteRequest) (*pb.VoteResponse, error) {
 	return &pb.VoteResponse{
 		Vote:  s.node.agreeVote(in.Round),
-		Round: in.Round,
+		Round: s.node.getRound(),
 	}, nil
 }
 
@@ -36,8 +36,8 @@ func (s *server) Heartbeat(ctx context.Context, in *pb.HeartbeatRequest) (*pb.Em
 
 	leader := s.node.getLeader()
 	if leader == nil || leader.getRound() < in.Round {
-		s.node.logger.Info(ctx, "Heartbeat", map[string]any{
-			"Leader": in.NodeID,
+		s.node.logger.Info(ctx, "Heartbeat", []LoggerField{
+			{Key: "Leader", Value: in.NodeID},
 		})
 		s.node.newLeader(in.NodeID)
 		s.node.setRound(in.Round)

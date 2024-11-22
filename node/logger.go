@@ -2,53 +2,59 @@ package node
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 )
 
 type Logger interface {
-	Info(ctx context.Context, msg string, args map[string]any)
-	Warn(ctx context.Context, msg string, args map[string]any)
-	Err(ctx context.Context, err error, args map[string]any)
+	Info(ctx context.Context, msg string, fields []LoggerField)
+	Warn(ctx context.Context, msg string, fields []LoggerField)
+	Err(ctx context.Context, err error, fields []LoggerField)
+}
+
+type LoggerField struct {
+	Key   string
+	Value any
 }
 
 type logDefault struct {
 	logger *slog.Logger
 }
 
-func NewLogger(level slog.Level) Logger {
-	opts := &slog.HandlerOptions{
-		Level: level,
+func NewLogger(handler slog.Handler) Logger {
+	if handler == nil {
+		opts := &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		}
+		handler = slog.NewTextHandler(os.Stdout, opts)
 	}
-
 	return &logDefault{
-		logger: slog.New(slog.NewTextHandler(os.Stdout, opts)),
+		logger: slog.New(handler),
 	}
 }
 
-func (l *logDefault) Info(ctx context.Context, msg string, args map[string]any) {
-	l.logger.InfoContext(ctx, msg, toSlogAttr(args)...)
+func (l *logDefault) Info(ctx context.Context, msg string, fields []LoggerField) {
+	l.logger.InfoContext(ctx, msg, toSlogAttr(fields)...)
 }
 
-func (l *logDefault) Warn(ctx context.Context, msg string, args map[string]any) {
-	l.logger.WarnContext(ctx, msg, toSlogAttr(args)...)
+func (l *logDefault) Warn(ctx context.Context, msg string, fields []LoggerField) {
+	l.logger.WarnContext(ctx, msg, toSlogAttr(fields)...)
 }
 
-func (l *logDefault) Err(ctx context.Context, err error, args map[string]any) {
-	l.logger.ErrorContext(ctx, err.Error(), toSlogAttr(args)...)
+func (l *logDefault) Err(ctx context.Context, err error, fields []LoggerField) {
+	l.logger.ErrorContext(ctx, err.Error(), toSlogAttr(fields)...)
 }
 
-func toSlogAttr(args map[string]any) (a []any) {
-	if args == nil {
+func toSlogAttr(fields []LoggerField) (a []any) {
+	if fields == nil {
 		return
 	}
 
-	a = make([]any, 0, len(args)*2)
-	for k, v := range args {
+	a = make([]any, 0, len(fields)*2)
+	for _, item := range fields {
 		a = append(a, slog.Attr{
-			Key:   k,
-			Value: slog.StringValue(fmt.Sprintf("%+v", v)),
+			Key:   item.Key,
+			Value: slog.AnyValue(item.Value),
 		})
 	}
 	return

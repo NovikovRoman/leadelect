@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
@@ -86,7 +85,7 @@ func New(id, addr string, port int, opts ...NodeOpt) (n *Node) {
 		heartbeatTimeout:        time.Second * 3,
 		electionCheckTimeout:    time.Second * 10,
 		grpcServer:              grpc.NewServer(),
-		logger:                  NewLogger(slog.LevelDebug),
+		logger:                  NewLogger(nil),
 	}
 
 	for _, opt := range opts {
@@ -325,10 +324,10 @@ func (n *Node) sendHeartbeat(ctx context.Context) error {
 
 	if numErrors > n.NumNodes()/2 {
 		n.setStatus(pb.NodeStatus_Follower) // withdraw
-		n.logger.Warn(ctx, "heartbeat", map[string]any{
-			"numNonReplies": numErrors,
-			"numNodes":      n.NumNodes(),
-			"status":        n.getStatus(),
+		n.logger.Warn(ctx, "heartbeat", []LoggerField{
+			{Key: "numNonReplies", Value: numErrors},
+			{Key: "numNodes", Value: n.NumNodes()},
+			{Key: "status", Value: n.getStatus()},
 		})
 	}
 	return err

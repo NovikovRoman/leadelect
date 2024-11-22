@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	pb "github.com/NovikovRoman/leadelect/grpc"
@@ -18,7 +19,14 @@ type initNodeResult struct {
 }
 
 func (n *Node) Run(ctx context.Context) {
-	go n.serverRun(ctx)
+	go func() {
+		if err := n.serverRun(ctx); err != nil {
+			n.logger.Err(ctx, fmt.Errorf("Run serverRun: %w", err), []LoggerField{
+				{Key: "id", Value: n.ID()},
+				{Key: "addr", Value: n.AddrPort()},
+			})
+		}
+	}()
 
 	// And who is the leader here?
 	n.initNodes(ctx)
@@ -51,8 +59,8 @@ func (n *Node) Run(ctx context.Context) {
 
 		if n.getLeader() == nil {
 			n.election(ctx)
-			n.logger.Info(ctx, "Run", map[string]any{
-				"status": n.getStatus(),
+			n.logger.Info(ctx, "Run", []LoggerField{
+				{Key: "status", Value: n.getStatus()},
 			})
 			time.Sleep(time.Second)
 
@@ -62,13 +70,10 @@ func (n *Node) Run(ctx context.Context) {
 	}
 }
 
-func (n *Node) serverRun(ctx context.Context) {
+func (n *Node) serverRun(ctx context.Context) (err error) {
 	lis, err := net.Listen("tcp", n.AddrPort())
 	if err != nil {
-		n.logger.Err(ctx, fmt.Errorf("serverRun net.Listen: %w", err), map[string]any{
-			"id":   n.ID(),
-			"addr": n.AddrPort(),
-		})
+		err = fmt.Errorf("serverRun net.Listen: %w", err)
 		return
 	}
 
@@ -79,24 +84,22 @@ func (n *Node) serverRun(ctx context.Context) {
 	go func() {
 		<-ctx.Done()
 		n.grpcServer.GracefulStop()
-		n.logger.Info(ctx, "serverRun Graceful stop", map[string]any{
-			"id":   n.ID(),
-			"addr": n.AddrPort(),
+		n.logger.Info(ctx, "serverRun Graceful stop", []LoggerField{
+			{Key: "id", Value: n.ID()},
+			{Key: "addr", Value: n.AddrPort()},
 		})
 		wg.Done()
 	}()
 
-	n.logger.Info(ctx, "serverRun", map[string]any{
-		"id":   n.ID(),
-		"addr": n.AddrPort(),
+	n.logger.Info(ctx, "serverRun", []LoggerField{
+		{Key: "id", Value: n.ID()},
+		{Key: "addr", Value: n.AddrPort()},
 	})
-	if err := n.grpcServer.Serve(lis); err != nil {
-		n.logger.Err(ctx, fmt.Errorf("serverRun grpcServer.Serve: %w", err), map[string]any{
-			"id":   n.ID(),
-			"addr": n.AddrPort(),
-		})
+	if err = n.grpcServer.Serve(lis); err != nil {
+		err = fmt.Errorf("serverRun grpcServer.Serve: %w", err)
 	}
 	wg.Wait()
+	return
 }
 
 func (n *Node) initNodes(ctx context.Context) {
@@ -107,13 +110,16 @@ func (n *Node) initNodes(ctx context.Context) {
 		wg := &sync.WaitGroup{}
 		for _, node := range n.Nodes() {
 			wg.Add(1)
-			go n.initNode(ctx, wg, ch, node)
+			go func(wg *sync.WaitGroup) {
+				defer wg.Done()
+				ch <- n.initNode(ctx, node)
+			}(wg)
 		}
 		wg.Wait()
 	}()
 
 	maxRound := int64(0)
-	hasLeader := false
+	findLeader := false
 	for i := 0; i < len(n.Nodes()); i++ {
 		select {
 		case <-ctx.Done():
@@ -121,21 +127,21 @@ func (n *Node) initNodes(ctx context.Context) {
 
 		case r := <-ch:
 			if r.err != nil {
-				n.logger.Info(ctx, "initNode grpcClient.status", map[string]any{
-					"nodeID": r.nodeID,
-					"err":    r.err,
+				n.logger.Info(ctx, "initNode grpcClient.status", []LoggerField{
+					{Key: "nodeID", Value: r.nodeID},
+					{Key: "err", Value: r.err},
 				})
 				continue
 			}
 
-			n.logger.Info(ctx, "initNode response.status", map[string]any{
-				"nodeID": r.nodeID,
-				"status": r.resp.Status,
-				"round":  r.resp.Round,
+			n.logger.Info(ctx, "initNode response.status", []LoggerField{
+				{Key: "nodeID", Value: r.nodeID},
+				{Key: "status", Value: r.resp.Status},
+				{Key: "round", Value: r.resp.Round},
 			})
 
 			if r.resp.Status == pb.NodeStatus_Leader {
-				hasLeader = true
+				findLeader = true
 				n.newLeader(r.nodeID)
 				n.setHeartbeat()
 				n.setRound(r.resp.Round)
@@ -146,30 +152,25 @@ func (n *Node) initNodes(ctx context.Context) {
 		}
 	}
 
-	if !hasLeader && maxRound > n.getRound() {
+	if !findLeader && maxRound > n.getRound() {
 		n.setRound(maxRound)
 	}
 }
 
-func (n *Node) initNode(ctx context.Context, wg *sync.WaitGroup, ch chan initNodeResult, node *Node) {
-	defer wg.Done()
-
-	res := initNodeResult{
+func (n *Node) initNode(ctx context.Context, node *Node) (r initNodeResult) {
+	r = initNodeResult{
 		nodeID: node.ID(),
 		resp:   nil,
 	}
 
 	resp, err := n.grpcClient.status(ctx, node.AddrPort())
 	if err != nil {
-		res.err = err
-		ch <- res
+		r.err = err
 		return
 	}
 
-	ch <- initNodeResult{
-		nodeID: node.ID(),
-		resp:   resp,
-	}
+	r.resp = resp
+	return
 }
 
 func (n *Node) election(ctx context.Context) {
@@ -186,45 +187,11 @@ func (n *Node) election(ctx context.Context) {
 	n.addVote()
 	n.setStatus(pb.NodeStatus_Candidate)
 
-	ch := make(chan string)
-	defer close(ch)
+	maxRound := n.votingNodes(ctx)
 
-	wg := &sync.WaitGroup{}
-
-	maxRound := int64(0)
-	for _, node := range n.Nodes() {
-		wg.Add(1)
-		go func(wg *sync.WaitGroup) {
-			defer wg.Done()
-
-			if n.isFollower() {
-				return
-			}
-
-			resp, err := n.grpcClient.vote(ctx, node.AddrPort())
-			if err != nil {
-				n.logger.Err(ctx, fmt.Errorf("election vote: %w", err), map[string]any{
-					"nodeID": node.id,
-				})
-				return
-			}
-			n.logger.Info(ctx, "election", map[string]any{
-				"nodeID": node.id,
-				"vote":   resp.Vote,
-				"round":  resp.Round,
-			})
-			if maxRound < resp.Round {
-				maxRound = resp.Round
-			}
-			if resp.Vote {
-				n.addVote()
-			}
-		}(wg)
-	}
-	wg.Wait()
-
-	n.logger.Info(ctx, "election", map[string]any{
-		"votes": n.numVotes(),
+	n.logger.Info(ctx, "election", []LoggerField{
+		{Key: "votes", Value: n.numVotes()},
+		{Key: "round", Value: maxRound},
 	})
 
 	if n.numVotes() > 0 && n.numVotes() > n.NumNodes()/2 {
@@ -241,4 +208,42 @@ func (n *Node) election(ctx context.Context) {
 	n.resetVotes()
 	n.setStatus(pb.NodeStatus_Follower)
 	n.resetVoted()
+}
+
+func (n *Node) votingNodes(ctx context.Context) int64 {
+	if n.isFollower() || n.isLeader() {
+		return n.getRound()
+	}
+
+	var aMaxRound atomic.Int64
+	wg := &sync.WaitGroup{}
+	for _, node := range n.Nodes() {
+		wg.Add(1)
+		go func(wg *sync.WaitGroup) {
+			defer wg.Done()
+
+			resp, err := n.grpcClient.vote(ctx, node.AddrPort())
+			if err != nil {
+				n.logger.Err(ctx, fmt.Errorf("election vote: %w", err), []LoggerField{
+					{Key: "nodeID", Value: node.id},
+				})
+				return
+			}
+
+			n.logger.Info(ctx, "election", []LoggerField{
+				{Key: "nodeID", Value: node.id},
+				{Key: "vote", Value: resp.Vote},
+				{Key: "round", Value: resp.Round},
+			})
+
+			if aMaxRound.Load() < resp.Round {
+				aMaxRound.Store(resp.Round)
+			}
+			if resp.Vote {
+				n.addVote()
+			}
+		}(wg)
+	}
+	wg.Wait()
+	return aMaxRound.Load()
 }
