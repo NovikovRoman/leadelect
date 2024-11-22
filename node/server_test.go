@@ -72,8 +72,9 @@ func TestServerVote(t *testing.T) {
 }
 
 func Test_ServerStatus(t *testing.T) {
-	testNode1 := New("test1", "127.0.0.1", testServerPort+1)
-	testNode2 := New("test2", "127.0.0.2", testServerPort+1)
+	portOffset := 1
+	testNode1 := New("test1", "127.0.0.1", testServerPort+portOffset)
+	testNode2 := New("test2", "127.0.0.2", testServerPort+portOffset)
 
 	lis, err := net.Listen("tcp", testNode1.AddrPort())
 	require.Nil(t, err)

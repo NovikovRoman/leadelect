@@ -39,8 +39,9 @@ func TestRun_serverRun(t *testing.T) {
 }
 
 func TestRun_initNode(t *testing.T) {
-	testNode1 := New("test1", "127.0.0.1", testRunPort)
-	testNode2 := New("test2", "127.0.0.2", testRunPort)
+	portOffset := 1
+	testNode1 := New("test1", "127.0.0.1", testRunPort+portOffset)
+	testNode2 := New("test2", "127.0.0.2", testRunPort+portOffset)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -66,13 +67,15 @@ func TestRun_initNode(t *testing.T) {
 }
 
 func TestRun_votingNodes(t *testing.T) {
+	portOffset := 2
+
 	var b bytes.Buffer
 	w := bufio.NewWriter(&b)
 	l := NewLogger(slog.NewTextHandler(w, nil))
 
-	testNode1 := New("test1", "127.0.0.1", testRunPort)
-	testNode2 := New("test2", "127.0.0.2", testRunPort)
-	testNode3 := New("test3", "127.0.0.3", testRunPort)
+	testNode1 := New("test1", "127.0.0.1", testRunPort+portOffset)
+	testNode2 := New("test2", "127.0.0.2", testRunPort+portOffset)
+	testNode3 := New("test3", "127.0.0.3", testRunPort+portOffset)
 	testNode1.logger = l
 	testNode2.logger = l
 	testNode3.logger = l

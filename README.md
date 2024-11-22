@@ -171,3 +171,15 @@ go build -o app
 ./app 2
 ./app 3
 ```
+
+### Генерация proto
+
+```shell
+protoc --go-grpc_out=. --go_out=. */*.proto
+```
+
+### Тестирование
+
+```shell
+go test ./node
+```
