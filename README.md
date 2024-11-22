@@ -89,8 +89,14 @@ func main() {
         node.ClientTimeout(time.Second * 10),
         node.HeartBeatTimeout(time.Second * 3),
         node.CheckElectionTimeout(time.Second * 10),
-        node.WithLogger(slog.Default()),
+        node.WithLogger(nil), // default slog
     }
+
+    // with custom slog:
+    // var buf bytes.Buffer
+    // w := bufio.NewWriter(&buf)
+    // customSlog := slog.NewTextHandler(w, nil)
+    // opts = append(opts, node.WithLogger(node.NewLogger(customSlog)))
 
     port, _ := strconv.ParseInt(p.Port, 10, 64)
     n := node.New(os.Args[1], p.Addr, int(port), opts...)
